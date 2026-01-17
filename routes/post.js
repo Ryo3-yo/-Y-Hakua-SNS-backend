@@ -208,42 +208,18 @@ router.get("/profile/:username", async (req, res) => {
 //   console.log("post page");
 // });
 
-//投稿の検索
-// router.get("/search", async (req, res) => {
-//   try {
-//     console.log("Post searching...", req.query, "req.body:", req.body);
-//     const query = req.query.q;
-//     if (!query) {
-//       return res.status(400).json({ message: "検索ワードが必要です" });
-//     }
-// 
-//     const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-//     const regex = new RegExp(escapeRegex(query), "i");
-// 
-//     const posts = await Post.find({
-//       $or:[
-//         { desc: { $regex: regex }},
-//         //{ title: { $regex: regex }},
-//       ]
-//     }).populate({path: "userId", select: "username profilePicture"});
-//     res
-//       .status(200)
-//       .json(posts);
-//   } catch (err) {
-//     console.log("post search error:", err);
-//     return res.status(500).json({message : err.message});
-//   }
-// });
-
 router.get('/search', async (req, res) => {
   try {
-    const { q } = req.query;
+    const q = req.query.q?.trim();
     if (!q) return res.status(400).json({ message: "検索ワードが必要です" });
 
+    // Sanitize query for regex
+    const sanitizedQuery = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
     const posts = await Post.find({
-      desc: { $regex: q, $options: 'i' }
+      desc: { $regex: sanitizedQuery, $options: 'i' }
     })
-      .populate('userId', 'username profilePicture') // ユーザー情報を結合
+      .populate('userId', 'username profilePicture')
       .sort({ createdAt: -1 })
       .limit(20);
 
@@ -253,36 +229,6 @@ router.get('/search', async (req, res) => {
     res.status(500).json(err);
   }
 });
-
-// ... (前回のコード)
-
-// router.get('/search', async (req, res) => {
-//   try {
-//     const { q } = req.query;
-
-//     if (!q || q.trim() === '') {
-//       return res.status(400).json({ msg: '検索キーワードを入力してください' });
-//     }
-
-//     // ▼ 変更点 ▼
-//     // 検索対象のフィールドを 'content' から 'desc' に変更
-//     const posts = await Post.find({
-//       desc: { $regex: q, $options: 'i' }
-//     })
-//     // ▲ 変更点 ▲
-
-//     .populate('author', 'username avatar')
-//     .sort({ createdAt: -1 })
-//     .limit(20);
-
-//     // posts には 'desc' だけでなく、_id, author, createdAt など
-//     // マッチしたPostの全データ（オブジェクト）が配列として格納されています。
-//     // この
-//     res.json(posts); // 
-//   } catch (err) {
-//     // ... (エラーハンドリング)
-//   }
-// });
 
 //get a post
 router.get("/:id", async (req, res) => {

@@ -204,67 +204,17 @@ router.put("/:id/unfollow", async (req, res) => {
   }
 });
 
-// //ユーザー検索機能
-// router.get("/search" , async (req, res )=> {
-//   try {
-//     console.log("ユーザー名 res.query:", req.query);
-
-//     const query = req.query.q 
-
-//     if (!query) return res.status(400).json({message: "検索ワードが必要です"});
-
-//     //名前またはユーザー名の一部が一致するユーザーの検索
-//     const users = await User.find({
-//       $or : [
-//         { name: { $regex: query, $options: "i"}},
-//         { username: { $regex: query, $options: "i"}},
-//       ],
-//     }).select("-password","-email");
-
-//     res.status(200).json(users);
-//   } catch (err) {
-//     console.log("search error:", err);
-//     return res.status(500).json(err);
-//   }
-// })
-
-
-// 投稿検索API
+// ユーザー検索API
 router.get("/search", async (req, res) => {
   const q = req.query.q?.trim();
   if (!q) return res.json([]);
 
-  // try {
-  //   const users = await User.find({
-  //     const users = await Post.find({
-  //           $or: [
-  //             { desc: { $regex: q, $options: "i" } },
-  //             { username: { $regex: q, $options: "i" } },
-  //           ],
-  //         }).limit(20);
-
-  //         res.json(posts);
-  //     // $or: [
-  //     //   { desc: { $regex: q, $options: "i" } },
-  //     //   { username: { $regex: q, $options: "i" } },
-  //     // ],
-  //     // username:{ $regex: q, $options: "i" },
-  //     // // desc: { $regex: q, $options: "i" },
-  //   })
-  //     // .populate("userId", "username profilePicture")
-  //     // .limit(20);
-
-  //   res.json(users);
-  // } catch (err) {
-  //   console.error(err);
-  //   res.status(500).json({ error: "投稿検索に失敗しました" });
-  // }
   try {
     // 正規表現で部分一致（大文字小文字を無視）
     const users = await User.find({
       $or: [
-        // { desc: { $regex: q, $options: "i" } },
-        { username: { $regex: q, $options: "i" } },
+        { username: { $regex: q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: "i" } },
+        { name: { $regex: q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: "i" } },
       ],
     }).limit(20);
 
