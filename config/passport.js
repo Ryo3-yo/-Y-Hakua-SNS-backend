@@ -112,6 +112,7 @@ passport.use(
       prompt: 'consent',
       pkce: true,
       state: true,
+      includeGrantedScopes: true,
     },
     async (accessToken, refreshToken, profile, done) => {
       try {

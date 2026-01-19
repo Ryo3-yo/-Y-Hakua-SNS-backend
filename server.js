@@ -126,6 +126,9 @@ app.use(cors({
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   credentials: true
 }));
+//Google RISC用のミドルウェア設定
+app.use(express.text({ type: 'application/secevent+jwt' }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
