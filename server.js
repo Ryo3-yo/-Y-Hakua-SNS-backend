@@ -128,9 +128,9 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.get("/health", (req, res)=>{
+app.get("/health", (req, res) => {
   res.status(200).json({
-    status:"OK",
+    status: "OK",
     uptime: process.uptime(),
     timestamp: Date.now(),
   });
@@ -175,6 +175,7 @@ app.use('/api/conversations', require('./routes/conversation'));
 app.use('/api/messages', require('./routes/message'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/hashtags', require('./routes/hashtag'));
+app.use('/api/security', require('./routes/security'));
 
 // サーバー起動
 const PORT = process.env.PORT || 8800;

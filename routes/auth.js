@@ -54,7 +54,8 @@ router.get(
       'https://www.googleapis.com/auth/classroom.rosters.readonly'
     ],
     accessType: 'offline', // リフレッシュトークンを取得するために必須
-    prompt: 'consent'      // 毎回承認画面を表示して確実にリフレッシュトークンを取得
+    prompt: 'consent',      // 毎回承認画面を表示して確実にリフレッシュトークンを取得
+    includeGrantedScopes: true
   })
 );
 

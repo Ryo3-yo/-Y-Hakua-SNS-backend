@@ -110,6 +110,8 @@ passport.use(
       ],
       accessType: 'offline',
       prompt: 'consent',
+      pkce: true,
+      state: true,
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
