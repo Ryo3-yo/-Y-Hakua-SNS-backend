@@ -104,9 +104,13 @@ passport.use(
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       callbackURL: process.env.GOOGLE_CALLBACK_URL || '/api/auth/google/callback',
       scope: [
+        "openid",
         "profile",
         "email",
         "https://www.googleapis.com/auth/classroom.courses.readonly",
+        "https://www.googleapis.com/auth/classroom.coursework.readonly",
+        "https://www.googleapis.com/auth/classroom.announcements.readonly",
+        "https://www.googleapis.com/auth/classroom.courseworkmaterials.readonly",
       ],
       accessType: 'offline',
       prompt: 'consent',
