@@ -12,6 +12,7 @@ const { Server } = require("socket.io");
 dotenv.config();
 
 const app = express();
+app.set('trust proxy', 1); // Enable trusting proxy for Secure cookies
 const server = http.createServer(app);
 const allowedOrigins = [
   process.env.FRONTEND_URL,
@@ -143,10 +144,11 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: false,
   saveUninitialized: false,
+  proxy: true, // Required for Secure cookies behind a proxy
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    sameSite: 'lax'
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
   }
 }));
 
