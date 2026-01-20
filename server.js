@@ -168,13 +168,12 @@ mongoose.connect(process.env.MONGO_URL, {
   .catch(err => console.error('MongoDB connection error:', err));
 
 
+// Upstash Redis (REST) - credentials should be set via env vars on Render/Vercel/etc.
+// UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN
 const redis = new Redis({
-  url: 'https://sound-coyote-19649.upstash.io',
-  token: 'AUzBAAIncDJlMmMyYjQ3ODdiYTY0ZGQzODYyN2M1N2FjZjBiZWU4MXAyMTk2NDk',
-})
-
-await redis.set("foo", "bar");
-await redis.get("foo");
+  url: process.env.UPSTASH_REDIS_REST_URL,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN,
+});
 
   // Passport設定
 require('./config/passport');
