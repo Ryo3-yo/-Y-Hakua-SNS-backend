@@ -1,6 +1,7 @@
 const router = require("express").Router();
 const User = require("../models/User");
 const passport = require("passport");
+const redisClient = require("../redisClient");
 
 //CRUD
 //ユーザー情報の更新
@@ -148,6 +149,15 @@ router.put("/:id/follow", async (req, res) => {
             following: req.params.id
           }
         });
+
+        // Redis sync
+        try {
+          await redisClient.sAdd(`followers:${req.params.id}`, req.body.userId);
+          await redisClient.sAdd(`following:${req.body.userId}`, req.params.id);
+        } catch (redisErr) {
+          console.error("Redis sync error (follow):", redisErr);
+        }
+
         res.status(200).json("user has been followd");
       } else {
         return res.status(403).json("you allready follow this user");
@@ -192,6 +202,15 @@ router.put("/:id/unfollow", async (req, res) => {
       if (user.followers.includes(req.body.userId)) {
         await user.updateOne({ $pull: { followers: req.body.userId } });
         await currentUser.updateOne({ $pull: { following: req.params.id } });
+
+        // Redis sync
+        try {
+          await redisClient.sRem(`followers:${req.params.id}`, req.body.userId);
+          await redisClient.sRem(`following:${req.body.userId}`, req.params.id);
+        } catch (redisErr) {
+          console.error("Redis sync error (unfollow):", redisErr);
+        }
+
         res.status(200).json("user has been unfollowd");
       } else {
         return res.status(403).json("you dont follow this user");
@@ -235,19 +254,40 @@ router.get("/me", passport.authenticate('jwt', { session: false }), (req, res) =
 //get friends (following list)
 router.get("/friends/:userId", async (req, res) => {
   try {
-    const user = await User.findById(req.params.userId);
+    const userId = req.params.userId;
+    let followingIds = [];
 
-    if (!user) {
-      return res.status(404).json({ error: "ユーザーが見つかりません" });
+    // Try Redis first
+    try {
+      followingIds = await redisClient.sMembers(`following:${userId}`);
+    } catch (redisErr) {
+      console.error("Redis fetch error (friends):", redisErr);
     }
 
-    // following配列が存在しない、または空の場合
-    if (!user.following || user.following.length === 0) {
+    // If Redis is empty, fallback to MongoDB and seed Redis
+    if (followingIds.length === 0) {
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({ error: "ユーザーが見つかりません" });
+      }
+      followingIds = user.following || [];
+
+      // Seed Redis
+      if (followingIds.length > 0) {
+        try {
+          await redisClient.sAdd(`following:${userId}`, followingIds);
+        } catch (seedErr) {
+          console.error("Redis seed error (friends):", seedErr);
+        }
+      }
+    }
+
+    if (followingIds.length === 0) {
       return res.status(200).json([]);
     }
 
     const friends = await Promise.all(
-      user.following.map((friendId) => {
+      followingIds.map((friendId) => {
         return User.findById(friendId);
       })
     );
@@ -269,18 +309,40 @@ router.get("/friends/:userId", async (req, res) => {
 // get followers list
 router.get("/followers/:userId", async (req, res) => {
   try {
-    const user = await User.findById(req.params.userId);
+    const userId = req.params.userId;
+    let followerIds = [];
 
-    if (!user) {
-      return res.status(404).json({ error: "ユーザーが見つかりません" });
+    // Try Redis first
+    try {
+      followerIds = await redisClient.sMembers(`followers:${userId}`);
+    } catch (redisErr) {
+      console.error("Redis fetch error (followers):", redisErr);
     }
 
-    if (!user.followers || user.followers.length === 0) {
+    // If Redis is empty, fallback to MongoDB and seed Redis
+    if (followerIds.length === 0) {
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({ error: "ユーザーが見つかりません" });
+      }
+      followerIds = user.followers || [];
+
+      // Seed Redis
+      if (followerIds.length > 0) {
+        try {
+          await redisClient.sAdd(`followers:${userId}`, followerIds);
+        } catch (seedErr) {
+          console.error("Redis seed error (followers):", seedErr);
+        }
+      }
+    }
+
+    if (followerIds.length === 0) {
       return res.status(200).json([]);
     }
 
     const followers = await Promise.all(
-      user.followers.map((followerId) => {
+      followerIds.map((followerId) => {
         return User.findById(followerId);
       })
     );

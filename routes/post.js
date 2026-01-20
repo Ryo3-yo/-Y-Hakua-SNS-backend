@@ -3,7 +3,8 @@ const Post = require("../models/Post");
 const User = require("../models/User");
 const Comment = require("../models/Comment");
 const Notification = require("../models/Notification");
-const { saveHashtags } = require("./hashtag");
+const { saveHashtags, getTodayDate } = require("./hashtag");
+const redisClient = require("../redisClient");
 
 //create a post
 router.post("/", async (req, res) => {
@@ -81,6 +82,15 @@ router.put("/:id/like", async (req, res) => {
     if (!post.likes.includes(req.body.userId)) {
       await post.updateOne({ $push: { likes: req.body.userId } });
 
+      // いいねランキング用（日本時間3:00区切りの日付キー）をRedisで更新
+      try {
+        const today = getTodayDate();
+        await redisClient.zIncrBy(`likeRanking:${today}`, 1, post._id.toString());
+        await redisClient.expire(`likeRanking:${today}`, 60 * 60 * 24 * 14);
+      } catch (redisErr) {
+        console.error("Redis like ranking incr error:", redisErr);
+      }
+
       // 通知作成 & 送信 (自分の投稿以外)
       if (post.userId.toString() !== req.body.userId) {
         const notification = new Notification({
@@ -89,7 +99,30 @@ router.put("/:id/like", async (req, res) => {
           type: "like",
           post: post._id,
         });
-        await notification.save();
+        const savedNotification = await notification.save();
+
+        // Redis sync
+        try {
+          // Fetch sender details to store in Redis as well (to avoid multiple lookups during retrieval)
+          const sender = await User.findById(req.body.userId);
+          const notificationData = {
+            _id: savedNotification._id,
+            sender: {
+              _id: sender._id,
+              username: sender.username,
+              profilePicture: sender.profilePicture
+            },
+            receiver: post.userId,
+            type: "like",
+            post: post._id,
+            createdAt: savedNotification.createdAt,
+            isRead: false
+          };
+          await redisClient.lPush(`notifications:${post.userId}`, JSON.stringify(notificationData));
+          await redisClient.lTrim(`notifications:${post.userId}`, 0, 49); // Keep only last 50
+        } catch (redisErr) {
+          console.error("Redis notification sync error (like):", redisErr);
+        }
 
         const io = req.app.get('io');
         const sender = await User.findById(req.body.userId);
@@ -107,6 +140,13 @@ router.put("/:id/like", async (req, res) => {
     } else {
       //いいねしているユーザーを取り除く
       await post.updateOne({ $pull: { likes: req.body.userId } });
+      // ランキングも可能であればデクリメント（ベストエフォート）
+      try {
+        const today = getTodayDate();
+        await redisClient.zIncrBy(`likeRanking:${today}`, -1, post._id.toString());
+      } catch (redisErr) {
+        console.error("Redis like ranking decr error:", redisErr);
+      }
       res.status(200).json("The post has been disliked");
     }
   } catch (err) {
@@ -230,6 +270,123 @@ router.get('/search', async (req, res) => {
   }
 });
 
+// いいねランキング（本日）を取得
+// ハッシュタグと同じく、日本時間3:00区切りの日付ごとにランキングを管理
+router.get("/like-ranking", async (req, res) => {
+  try {
+    const today = getTodayDate();
+    const key = `likeRanking:${today}`;
+
+    // 1. Redis の ZSET から取得
+    try {
+      const redisRanking = await redisClient.zRevRangeWithScores(key, 0, 9);
+      if (redisRanking && redisRanking.length > 0) {
+        const posts = await Promise.all(
+          redisRanking.map(async (item) => {
+            const post = await Post.findById(item.value).populate(
+              "userId",
+              "username profilePicture"
+            );
+            return post
+              ? {
+                  postId: post._id,
+                  rank: 0, // 後で並べ直す
+                  count: item.score,
+                  desc: post.desc,
+                  img: post.img,
+                  user: post.userId,
+                }
+              : null;
+          })
+        );
+
+        const filtered = posts.filter(Boolean).map((p, index) => ({
+          ...p,
+          rank: index + 1,
+        }));
+
+        return res.status(200).json(filtered);
+      }
+    } catch (redisErr) {
+      console.error("Redis fetch error (like ranking):", redisErr);
+    }
+
+    // 2. Redisに無ければMongoDB(Notification)から集計してRedisへシード
+    const nowUtc = new Date();
+    const jstMillis = nowUtc.getTime() + 9 * 60 * 60 * 1000;
+    const endJst = new Date(jstMillis);
+    const startJst = new Date(endJst.getTime() - 24 * 60 * 60 * 1000);
+
+    const startUtc = new Date(startJst.getTime() - 9 * 60 * 60 * 1000);
+    const endUtc = new Date(endJst.getTime() - 9 * 60 * 60 * 1000);
+
+    const agg = await Notification.aggregate([
+      {
+        $match: {
+          type: "like",
+          createdAt: { $gte: startUtc, $lte: endUtc },
+          post: { $ne: null },
+        },
+      },
+      {
+        $group: {
+          _id: "$post",
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { count: -1 } },
+      { $limit: 10 },
+    ]);
+
+    if (agg.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // 対応する投稿情報を取得
+    const postsMap = {};
+    const posts = await Post.find({ _id: { $in: agg.map((a) => a._id) } }).populate(
+      "userId",
+      "username profilePicture"
+    );
+    posts.forEach((p) => {
+      postsMap[p._id.toString()] = p;
+    });
+
+    const ranking = agg
+      .map((item, index) => {
+        const post = postsMap[item._id.toString()];
+        if (!post) return null;
+        return {
+          postId: post._id,
+          rank: index + 1,
+          count: item.count,
+          desc: post.desc,
+          img: post.img,
+          user: post.userId,
+        };
+      })
+      .filter(Boolean);
+
+    // Redis にシード
+    try {
+      const pipeline = redisClient.multi();
+      pipeline.del(key);
+      ranking.forEach((r) => {
+        pipeline.zAdd(key, { score: r.count, value: r.postId.toString() });
+      });
+      pipeline.expire(key, 60 * 60 * 24 * 14);
+      await pipeline.exec();
+    } catch (seedErr) {
+      console.error("Redis seed error (like ranking):", seedErr);
+    }
+
+    return res.status(200).json(ranking);
+  } catch (err) {
+    console.error("Error in /like-ranking:", err);
+    return res.status(500).json(err);
+  }
+});
+
 //get a post
 router.get("/:id", async (req, res) => {
   try {
@@ -265,7 +422,29 @@ router.post("/:id/comment", async (req, res) => {
         type: "comment",
         post: post._id,
       });
-      await notification.save();
+      const savedNotification = await notification.save();
+
+      // Redis sync
+      try {
+        const sender = await User.findById(req.body.userId);
+        const notificationData = {
+          _id: savedNotification._id,
+          sender: {
+            _id: sender._id,
+            username: sender.username,
+            profilePicture: sender.profilePicture
+          },
+          receiver: post.userId,
+          type: "comment",
+          post: post._id,
+          createdAt: savedNotification.createdAt,
+          isRead: false
+        };
+        await redisClient.lPush(`notifications:${post.userId}`, JSON.stringify(notificationData));
+        await redisClient.lTrim(`notifications:${post.userId}`, 0, 49); // Keep only last 50
+      } catch (redisErr) {
+        console.error("Redis notification sync error (comment):", redisErr);
+      }
 
       const io = req.app.get('io');
       const sender = await User.findById(req.body.userId);
