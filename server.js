@@ -8,7 +8,7 @@ const passport = require('passport');
 const session = require('express-session');
 const http = require('http');
 const { Server } = require("socket.io");
-
+const { Redis } = require('@upstash/redis');
 dotenv.config();
 
 const app = express();
@@ -167,7 +167,16 @@ mongoose.connect(process.env.MONGO_URL, {
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connection error:', err));
 
-// Passport設定
+
+const redis = new Redis({
+  url: 'https://sound-coyote-19649.upstash.io',
+  token: 'AUzBAAIncDJlMmMyYjQ3ODdiYTY0ZGQzODYyN2M1N2FjZjBiZWU4MXAyMTk2NDk',
+})
+
+await redis.set("foo", "bar");
+await redis.get("foo");
+
+  // Passport設定
 require('./config/passport');
 
 // ルート
