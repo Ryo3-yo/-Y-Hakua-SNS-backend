@@ -175,7 +175,7 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN,
 });
 
-  // Passport設定
+// Passport設定
 require('./config/passport');
 
 // ルート
@@ -189,6 +189,7 @@ app.use('/api/messages', require('./routes/message'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/hashtags', require('./routes/hashtag'));
 app.use('/api/security', require('./routes/security'));
+app.use('/api/learning', require('./routes/learning'));
 
 // サーバー起動
 const PORT = process.env.PORT || 8800;
