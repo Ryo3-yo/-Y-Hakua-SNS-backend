@@ -1,6 +1,25 @@
 const router = require('express').Router();
 const LearningSession = require('../models/LearningSession');
 const LearningGoal = require('../models/LearningGoal');
+const User = require('../models/User'); // Userモデルも必要になるため追加
+const { Redis } = require('@upstash/redis');
+
+// Redisクライアントの初期化
+const redis = new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN,
+});
+
+// Redisキーの生成ヘルパー
+const getWeeklyRankingKey = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    // ISO週番号の計算（簡易版）
+    const start = new Date(year, 0, 1);
+    const days = Math.floor((now - start) / (24 * 60 * 60 * 1000));
+    const week = Math.ceil((days + 1) / 7);
+    return `learning:ranking:weekly:${year}:${week}`;
+};
 
 // =====================================
 // 学習セッション関連のエンドポイント
@@ -61,6 +80,16 @@ router.post('/sessions/stop', async (req, res) => {
         session.isActive = false;
 
         const updatedSession = await session.save();
+
+        // Redisの週間ランキングを更新
+        try {
+            const rankingKey = getWeeklyRankingKey();
+            await redis.zincrby(rankingKey, duration, userId);
+        } catch (redisErr) {
+            console.error('Redis ranking update failed:', redisErr);
+            // Redis更新失敗はクリティカルではないため、処理は続行
+        }
+
         res.status(200).json(updatedSession);
     } catch (err) {
         console.error('Error stopping learning session:', err);
@@ -337,6 +366,98 @@ router.delete('/goals/:id', async (req, res) => {
     } catch (err) {
         console.error('Error deleting goal:', err);
         res.status(500).json({ message: '目標削除に失敗しました' });
+    }
+});
+
+// =====================================
+// ランキング関連のエンドポイント
+// =====================================
+
+// 週間学習時間ランキングを取得
+router.get('/ranking/weekly', async (req, res) => {
+    try {
+        const rankingKey = getWeeklyRankingKey();
+
+        // 1. Redisから上位10名を取得（スコア付き）
+        let rankingData;
+        try {
+            rankingData = await redis.zrange(rankingKey, 0, 9, {
+                rev: true,
+                withScores: true,
+            });
+        } catch (redisErr) {
+            console.error('Redis fetch failed, falling back to MongoDB:', redisErr);
+        }
+
+        // Redisにデータがない、またはエラーの場合はMongoDBから集計してRedisにセット
+        if (!rankingData || rankingData.length === 0) {
+            const today = new Date();
+            const weekStart = new Date(today);
+            weekStart.setDate(today.getDate() - today.getDay());
+            weekStart.setHours(0, 0, 0, 0);
+
+            const mongoRanking = await LearningSession.aggregate([
+                {
+                    $match: {
+                        startTime: { $gte: weekStart },
+                        isActive: false,
+                    },
+                },
+                {
+                    $group: {
+                        _id: '$userId',
+                        totalMinutes: { $sum: '$duration' },
+                    },
+                },
+                { $sort: { totalMinutes: -1 } },
+                { $limit: 10 },
+            ]);
+
+            // Redisにキャッシュ（パイプラインで一括登録）
+            if (mongoRanking.length > 0) {
+                const pipeline = redis.pipeline();
+                mongoRanking.forEach((item) => {
+                    pipeline.zadd(rankingKey, { score: item.totalMinutes, member: item._id.toString() });
+                });
+                await pipeline.exec();
+            }
+
+            // データ形式をRedisの結果に合わせる
+            // mongoRanking: [{ _id, totalMinutes }]
+            // rankingData (Redis形式): [userId, score, userId, score, ...]
+            rankingData = [];
+            mongoRanking.forEach(item => {
+                rankingData.push(item._id.toString());
+                rankingData.push(item.totalMinutes);
+            });
+        }
+
+        // 2. ユーザー情報を取得して結合
+        // rankingDataは [userId1, score1, userId2, score2, ...] のフラット配列
+        const rankedUsers = [];
+        for (let i = 0; i < rankingData.length; i += 2) {
+            const userId = rankingData[i];
+            const score = parseInt(rankingData[i + 1]);
+
+            // ユーザー情報を取得（本来はここもキャッシュすべきだが、今回はUserデータ変更への対応簡略化のため都度取得）
+            // 必要に応じてUser情報のキャッシュ戦略も検討可能
+            const user = await User.findById(userId).select('username profilePicture');
+
+            if (user) {
+                rankedUsers.push({
+                    userId: user._id,
+                    username: user.username,
+                    profilePicture: user.profilePicture,
+                    totalMinutes: score,
+                    rank: (i / 2) + 1,
+                });
+            }
+        }
+
+        res.status(200).json(rankedUsers);
+    } catch (err) {
+        console.error('Error fetching weekly ranking:', err);
+        res.status(500).json({ message: 'ランキング取得に失敗しました' });
     }
 });
 
