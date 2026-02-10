@@ -46,13 +46,13 @@ router.post("/login", async (req, res) => {
 router.get(
   '/google',
   (req, res, next) => {
-    // platformパラメータをCookieに保存（セッションはpassportが再生成するため消える）
     if (req.query.platform === 'mobile') {
+      // セッションとCookieの両方に保存（冗長性確保）
+      req.session.oauthPlatform = 'mobile';
       res.cookie('oauth_platform', 'mobile', {
-        maxAge: 5 * 60 * 1000, // 5分
+        maxAge: 5 * 60 * 1000,
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        sameSite: 'lax',
       });
     }
     next();
@@ -76,6 +76,19 @@ router.get(
 // Google OAuth コールバック
 router.get(
   '/google/callback',
+  // ★ Passportがセッションを再生成する前にplatformを読み取る
+  (req, res, next) => {
+    // セッションから読み取り（Passport処理前なのでまだ存在する）
+    req._oauthPlatform = req.session?.oauthPlatform || null;
+    // セッションが失われていた場合はCookieから読み取り
+    if (!req._oauthPlatform) {
+      const cookies = req.headers.cookie || '';
+      const match = cookies.match(/oauth_platform=([^;]+)/);
+      if (match) req._oauthPlatform = match[1];
+    }
+    console.log('[OAuth Callback] Platform detected:', req._oauthPlatform);
+    next();
+  },
   passport.authenticate('google', { failureRedirect: `${process.env.FRONTEND_URL || ''}/login` }),
   (req, res) => {
     // JWTトークンを生成
@@ -85,15 +98,17 @@ router.get(
       { expiresIn: '7d' }
     );
 
-    // Cookieからプラットフォームをチェック（セッションと違いpassportの再生成で消えない）
-    const cookies = req.headers.cookie || '';
-    const platformMatch = cookies.match(/oauth_platform=([^;]+)/);
-    const platform = platformMatch ? platformMatch[1] : null;
-
-    if (platform === 'mobile') {
-      // Cookieをクリアしてアプリにリダイレクト
+    if (req._oauthPlatform === 'mobile') {
       res.clearCookie('oauth_platform');
-      return res.redirect(`hakuasns://auth/success?token=${token}`);
+      // HTML経由でディープリンクを開く（302リダイレクトよりも確実）
+      return res.send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>ログイン完了</title></head>
+<body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
+  <p>アプリに戻っています...</p>
+  <script>
+    window.location.href = 'hakuasns://auth/success?token=${token}';
+  </script>
+</body></html>`);
     }
 
     res.redirect(`${process.env.FRONTEND_URL}/auth/success?token=${token}`);
