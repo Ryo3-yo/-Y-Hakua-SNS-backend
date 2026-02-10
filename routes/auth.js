@@ -45,6 +45,13 @@ router.post("/login", async (req, res) => {
 // Google OAuth ログイン
 router.get(
   '/google',
+  (req, res, next) => {
+    // platformパラメータをセッションに保存（コールバック時に参照）
+    if (req.query.platform) {
+      req.session.oauthPlatform = req.query.platform;
+    }
+    next();
+  },
   passport.authenticate('google', {
     scope: [
       'openid',
@@ -55,8 +62,8 @@ router.get(
       'https://www.googleapis.com/auth/classroom.announcements.readonly',
       'https://www.googleapis.com/auth/classroom.courseworkmaterials.readonly'
     ],
-    accessType: 'offline', // リフレッシュトークンを取得するために必須
-    prompt: 'consent',      // 毎回承認画面を表示して確実にリフレッシュトークンを取得
+    accessType: 'offline',
+    prompt: 'consent',
     includeGrantedScopes: true
   })
 );
@@ -72,6 +79,13 @@ router.get(
       process.env.JWT_SECRET || 'your-jwt-secret',
       { expiresIn: '7d' }
     );
+
+    // モバイルアプリからのリクエストの場合、カスタムURLスキームにリダイレクト
+    const platform = req.query.state || req.session?.oauthPlatform;
+    if (platform === 'mobile') {
+      return res.redirect(`hakuasns://auth/success?token=${token}`);
+    }
+
     res.redirect(`${process.env.FRONTEND_URL}/auth/success?token=${token}`);
   }
 );
