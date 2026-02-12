@@ -113,7 +113,7 @@ router.put("/:messageId", authenticate, async (req, res) => {
   }
 });
 
-// メッセージ削除（論理削除）
+// メッセージ削除（物理削除）
 router.delete("/:messageId", authenticate, async (req, res) => {
   try {
     const message = await Message.findById(req.params.messageId);
@@ -127,15 +127,13 @@ router.delete("/:messageId", authenticate, async (req, res) => {
       return res.status(403).json({ error: "このメッセージを削除する権限がありません" });
     }
 
-    message.deletedAt = new Date();
-    await message.save();
+    await Message.findByIdAndDelete(req.params.messageId);
 
     // 会話の最新メッセージを更新（削除されたメッセージが最新だった場合）
     const conversation = await Conversation.findById(message.conversationId);
     if (conversation && conversation.lastMessage?.toString() === message._id.toString()) {
       const lastActiveMessage = await Message.findOne({
         conversationId: message.conversationId,
-        deletedAt: null,
       }).sort({ createdAt: -1 });
 
       if (lastActiveMessage) {

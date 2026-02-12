@@ -89,11 +89,8 @@ router.delete("/:conversationId", authenticate, async (req, res) => {
       return res.status(403).json({ error: "この会話を削除する権限がありません" });
     }
 
-    // 会話内の全メッセージを論理削除
-    await Message.updateMany(
-      { conversationId: req.params.conversationId },
-      { $set: { deletedAt: new Date() } }
-    );
+    // 会話内の全メッセージを物理削除
+    await Message.deleteMany({ conversationId: req.params.conversationId });
 
     // 会話を削除
     await Conversation.findByIdAndDelete(req.params.conversationId);

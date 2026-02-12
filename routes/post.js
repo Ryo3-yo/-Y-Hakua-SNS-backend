@@ -76,6 +76,8 @@ router.delete("/:id", authenticate, async (req, res) => {
     if (post.userId.toString() !== req.user._id.toString()) {
       return res.status(403).json({ error: "自分の投稿のみ削除できます" });
     }
+    await Comment.deleteMany({ postId: post._id });
+    await Notification.deleteMany({ post: post._id });
     await post.deleteOne();
     res.status(200).json({ message: "投稿が削除されました" });
   } catch (err) {
@@ -510,13 +512,15 @@ router.get("/:id/comments", async (req, res) => {
 router.delete("/:id/comment/:commentId", authenticate, async (req, res) => {
   try {
     const comment = await Comment.findById(req.params.commentId);
-    if (!comment) return res.status(404).json({ error: "コメントが見つかりません" });
+    if (!comment || comment.postId.toString() !== req.params.id) {
+      return res.status(404).json({ error: "コメントが見つかりません" });
+    }
 
     // 削除権限の確認: コメント投稿者のみ
     if (comment.userId.toString() !== req.user._id.toString()) {
       return res.status(403).json({ error: "自分のコメントのみ削除できます" });
     }
-    await comment.deleteOne();
+    await Comment.findByIdAndDelete(req.params.commentId);
 
     // 該当する投稿のコメント数をデクリメント
     await Post.findByIdAndUpdate(req.params.id, {
