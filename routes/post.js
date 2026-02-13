@@ -18,6 +18,10 @@ router.post("/", authenticate, async (req, res) => {
     });
     const savedPost = await newPost.save();
 
+    // userId を populate して返す（フロントで投稿者名を即表示するため）
+    const populatedPost = await Post.findById(savedPost._id)
+      .populate('userId', 'username profilePicture');
+
     // Extract and save hashtags from the post description
     if (req.body.desc) {
       await saveHashtags(req.body.desc);
@@ -37,7 +41,7 @@ router.post("/", authenticate, async (req, res) => {
       });
     }
 
-    return res.status(200).json(savedPost);
+    return res.status(200).json(populatedPost);
   } catch (err) {
     console.error('Post create error:', err);
     return res.status(500).json({ error: '投稿の作成に失敗しました' });
