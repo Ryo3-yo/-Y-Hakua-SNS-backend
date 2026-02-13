@@ -4,6 +4,7 @@ const cloudinary = require("cloudinary").v2;
 const sharp = require("sharp");
 const { Readable } = require("stream");
 const dotenv = require("dotenv");
+const rateLimit = require("express-rate-limit");
 const { authenticate } = require("../middleware/auth");
 
 dotenv.config();
@@ -42,8 +43,15 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB limit
+  limits: { fileSize: 20 * 1024 * 1024 }, // tighten to 20MB to reduce memory DoS surface
   fileFilter: fileFilter,
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
 // 画像を1MB以下に近づけるための圧縮（段階的にリサイズ＋品質調整）
@@ -64,7 +72,7 @@ const compressToUnderTarget = async (buffer) => {
   return buffer; // これ以上は落とさないが、最終圧縮結果を返す
 };
 
-router.post("/", authenticate, (req, res) => {
+router.post("/", authenticate, uploadLimiter, (req, res) => {
   upload.single("file")(req, res, async (err) => {
     if (err instanceof multer.MulterError) {
       console.error("Multer error:", err);
@@ -82,8 +90,17 @@ router.post("/", authenticate, (req, res) => {
         return res.status(400).json({ error: "ファイルが選択されていません" });
       }
 
-      const isImage = ALLOWED_IMAGE_TYPES.includes(req.file.mimetype);
-      const isVideo = ALLOWED_VIDEO_TYPES.includes(req.file.mimetype);
+      const { fileTypeFromBuffer } = await import('file-type');
+      const detected = await fileTypeFromBuffer(req.file.buffer);
+      const detectedMime = detected?.mime;
+
+      // Magic-byte validation to prevent spoofed mimetypes
+      if (!detectedMime || !ALLOWED_MIME_TYPES.includes(detectedMime)) {
+        return res.status(400).json({ error: "許可されていないファイル形式です" });
+      }
+
+      const isImage = ALLOWED_IMAGE_TYPES.includes(detectedMime);
+      const isVideo = ALLOWED_VIDEO_TYPES.includes(detectedMime);
       let uploadBuffer = req.file.buffer;
       let resource_type = isImage ? "image" : "video";
 

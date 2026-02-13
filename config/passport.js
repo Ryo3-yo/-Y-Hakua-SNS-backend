@@ -128,7 +128,8 @@ passport.use(
           user.username = profile.displayName || profile.emails[0].value.split('@')[0];
           user.email = profile.emails[0].value;
           user.profilePicture = profile.photos[0]?.value;
-          user.accessToken = accessToken;
+          // Do not persist access tokens to avoid leaking live scopes
+          user.accessToken = undefined;
           // Only update refreshToken if provided; encrypt before storing.
           if (refreshToken) {
             user.refreshToken = encrypt(refreshToken);
@@ -141,7 +142,7 @@ passport.use(
             email: profile.emails[0].value,
             googleId: profile.id,
             profilePicture: profile.photos[0]?.value,
-            accessToken: accessToken,
+            // Do not persist access tokens to avoid leaking live scopes
             refreshToken: refreshToken ? encrypt(refreshToken) : undefined, // Save if provided on initial login
           });
           await user.save();
@@ -163,6 +164,8 @@ const { Strategy: JwtStrategy, ExtractJwt } = require('passport-jwt');
 const jwtOptions = {
   jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
   secretOrKey: process.env.JWT_SECRET,
+  issuer: process.env.JWT_ISSUER || 'hakua-sns',
+  audience: process.env.JWT_AUDIENCE || 'hakua-clients',
 };
 
 passport.use(

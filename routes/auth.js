@@ -20,6 +20,8 @@ const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
   throw new Error('JWT_SECRET must be set');
 }
+const JWT_ISSUER = process.env.JWT_ISSUER || 'hakua-sns';
+const JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'hakua-clients';
 
 //ユーザー登録
 router.post("/register", authLimiter, async (req, res) => {
@@ -83,7 +85,11 @@ router.post("/login", authLimiter, async (req, res) => {
     const token = jwt.sign(
       { id: user._id, email: user.email },
       JWT_SECRET,
-      { expiresIn: '7d' }
+      {
+        expiresIn: '7d',
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE,
+      }
     );
 
     const { password: _, accessToken: _a, refreshToken: _r, ...userWithoutSensitive } = user._doc;
@@ -148,7 +154,11 @@ router.get(
     const token = jwt.sign(
       { id: req.user._id, email: req.user.email },
       JWT_SECRET,
-      { expiresIn: '7d' }
+      {
+        expiresIn: '7d',
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE,
+      }
     );
 
     // Web: HttpOnly Cookieで返す
