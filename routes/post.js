@@ -197,10 +197,10 @@ router.get("/timeline/all", async (req, res) => {
           from: "users",
           localField: "userId",
           foreignField: "_id",
-          as: "user"
+          as: "userInfo"
         }
       },
-      { $unwind: "$user" },
+      { $unwind: "$userInfo" },
       {
         $project: {
           desc: 1,
@@ -210,10 +210,10 @@ router.get("/timeline/all", async (req, res) => {
           isClassroom: 1,
           createdAt: 1,
           updatedAt: 1,
-          user: {
-            _id: "$user._id",
-            username: "$user.username",
-            profilePicture: "$user.profilePicture"
+          userId: {
+            _id: "$userInfo._id",
+            username: "$userInfo.username",
+            profilePicture: "$userInfo.profilePicture"
           }
         }
       }
