@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { google } = require('googleapis');
 const User = require('../models/User');
 const passport = require('passport');
+const { decrypt, encrypt } = require('../utils/crypto');
 
 // Use JWT authentication strategy
 router.get('/courses', passport.authenticate('jwt', { session: false }), async (req, res) => {
@@ -22,18 +23,21 @@ router.get('/courses', passport.authenticate('jwt', { session: false }), async (
     );
 
     // 3. ユーザーのDBから取得したトークンをクライアントにセット
+    const refreshToken = user.refreshToken ? decrypt(user.refreshToken) : null;
+    if (!refreshToken) {
+      return res.status(401).json({ message: 'Google認証が必要です。再ログインしてください。' });
+    }
+
     oauth2Client.setCredentials({
-      access_token: user.accessToken,
-      refresh_token: user.refreshToken,
+      refresh_token: refreshToken,
     });
 
     // 4. (重要) トークンが更新された場合に備えてイベントリスナーをセット
     // googleapisライブラリが自動でトークンをリフレッシュし、このイベントが発火します
     oauth2Client.on('tokens', async (tokens) => {
-      if (tokens.access_token) {
-        console.log('Access token was refreshed!');
-        // 新しいアクセストークンをDBに保存
-        await User.findByIdAndUpdate(user.id, { accessToken: tokens.access_token });
+      // access tokenはDB保存しない。refresh tokenが来たときだけ再保存。
+      if (tokens.refresh_token) {
+        await User.findByIdAndUpdate(user.id, { refreshToken: encrypt(tokens.refresh_token) });
       }
     });
 
@@ -70,16 +74,20 @@ router.get('/announcements', passport.authenticate('jwt', { session: false }), a
       process.env.GOOGLE_CALLBACK_URL || '/api/auth/google/callback'
     );
 
+    const refreshToken = user.refreshToken ? decrypt(user.refreshToken) : null;
+    if (!refreshToken) {
+      return res.status(401).json({ message: 'Google認証が必要です。再ログインしてください。' });
+    }
+
     oauth2Client.setCredentials({
-      access_token: user.accessToken,
-      refresh_token: user.refreshToken,
+      refresh_token: refreshToken,
     });
 
     oauth2Client.on('tokens', async (tokens) => {
       console.log(`[Classroom] Tokens event: tokens received for user ${user._id}`);
       const updates = {};
-      if (tokens.access_token) updates.accessToken = tokens.access_token;
-      if (tokens.refresh_token) updates.refreshToken = tokens.refresh_token;
+      // access_tokenはDBに保存しない
+      if (tokens.refresh_token) updates.refreshToken = encrypt(tokens.refresh_token);
 
       if (Object.keys(updates).length > 0) {
         await User.findByIdAndUpdate(user.id, updates);
