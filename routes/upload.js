@@ -43,7 +43,8 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 20 * 1024 * 1024 }, // tighten to 20MB to reduce memory DoS surface
+  // クライアント側は35MBまでに制限
+  limits: { fileSize: 40 * 1024 * 1024 },
   fileFilter: fileFilter,
 });
 

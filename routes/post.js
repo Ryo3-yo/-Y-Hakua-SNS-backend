@@ -15,6 +15,7 @@ router.post("/", authenticate, async (req, res) => {
       userId: req.user._id,
       desc: req.body.desc,
       img: req.body.img,
+      video: req.body.video,
     });
     const savedPost = await newPost.save();
 
@@ -57,7 +58,7 @@ router.put("/:id", authenticate, async (req, res) => {
       return res.status(403).json({ error: "自分の投稿のみ更新できます" });
     }
     // ホワイトリスト方式で更新
-    const allowedFields = ['desc', 'img'];
+    const allowedFields = ['desc', 'img', 'video'];
     const updates = {};
     for (const key of allowedFields) {
       if (req.body[key] !== undefined) updates[key] = req.body[key];
