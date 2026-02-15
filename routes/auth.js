@@ -150,6 +150,15 @@ router.get(
   },
   passport.authenticate('google', { failureRedirect: `${process.env.FRONTEND_URL || ''}/login` }),
   (req, res) => {
+    // ログストリーム用: 誰がGoogleログインしたかを記録（トークンは出さない）
+    console.log('[Auth] Google login success', {
+      userId: req.user?._id?.toString(),
+      email: req.user?.email,
+      username: req.user?.username,
+      platform: req._oauthPlatform || 'web',
+      at: new Date().toISOString(),
+    });
+
     // JWTトークンを生成
     const token = jwt.sign(
       { id: req.user._id, email: req.user.email },
