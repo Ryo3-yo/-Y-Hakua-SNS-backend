@@ -1,3 +1,5 @@
 .env
 node_modules/
 .env.production.example
+google-services.json
+GoogleService-Info.plist
