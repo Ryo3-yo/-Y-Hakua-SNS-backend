@@ -148,7 +148,21 @@ router.get(
     console.log('[OAuth Callback] Platform detected:', req._oauthPlatform);
     next();
   },
-  passport.authenticate('google', { failureRedirect: `${process.env.FRONTEND_URL || ''}/login` }),
+  (req, res, next) => {
+    passport.authenticate('google', (err, user, info) => {
+      if (err || !user) {
+        console.error('[OAuth Callback] Authentication failed:', err || info);
+        return res.redirect(`${process.env.FRONTEND_URL || ''}/login?error=auth_failed`);
+      }
+      req.logIn(user, (loginErr) => {
+        if (loginErr) {
+          console.error('[OAuth Callback] Session login failed:', loginErr);
+          return res.redirect(`${process.env.FRONTEND_URL || ''}/login?error=auth_failed`);
+        }
+        next();
+      });
+    })(req, res, next);
+  },
   (req, res) => {
     // ログストリーム用: 誰がGoogleログインしたかを記録（トークンは出さない）
     console.log('[Auth] Google login success', {

@@ -141,6 +141,21 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Cross-Account Protection (RISC) 関連フィールド
+    accountLocked: {
+      type: Boolean,
+      default: false,
+    },
+    lockedAt: {
+      type: Date,
+    },
+    lockReason: {
+      type: String,
+    },
+    requiresReauth: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );

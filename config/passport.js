@@ -121,31 +121,58 @@ passport.use(
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
+        const email = profile.emails[0].value;
+        const displayName = profile.displayName || email.split('@')[0];
+
+        // 1. まずgoogleIdで検索
         let user = await User.findOne({ googleId: profile.id });
 
         if (user) {
-          // User exists, update tokens and other profile info
-          user.username = profile.displayName || profile.emails[0].value.split('@')[0];
-          user.email = profile.emails[0].value;
+          // 既存のGoogleユーザー: プロフィール情報を更新
+          // usernameの更新時に他のユーザーとの重複を避ける
+          const existingWithName = await User.findOne({ username: displayName, _id: { $ne: user._id } });
+          if (!existingWithName) {
+            user.username = displayName;
+          }
+          user.email = email;
           user.profilePicture = profile.photos[0]?.value;
-          // Do not persist access tokens to avoid leaking live scopes
           user.accessToken = undefined;
-          // Only update refreshToken if provided; encrypt before storing.
           if (refreshToken) {
             user.refreshToken = encrypt(refreshToken);
           }
           await user.save();
         } else {
-          // New user, create them
-          user = new User({
-            username: profile.displayName || profile.emails[0].value.split('@')[0],
-            email: profile.emails[0].value,
-            googleId: profile.id,
-            profilePicture: profile.photos[0]?.value,
-            // Do not persist access tokens to avoid leaking live scopes
-            refreshToken: refreshToken ? encrypt(refreshToken) : undefined, // Save if provided on initial login
-          });
-          await user.save();
+          // 2. googleIdが見つからない場合、同じメールで既存ユーザーがいるかチェック
+          //    （メール/パスワードで登録済みのユーザーがGoogleログインした場合）
+          user = await User.findOne({ email });
+
+          if (user) {
+            // 既存のメール/パスワードユーザーにGoogleアカウントをリンク
+            user.googleId = profile.id;
+            user.profilePicture = user.profilePicture || profile.photos[0]?.value;
+            user.accessToken = undefined;
+            if (refreshToken) {
+              user.refreshToken = encrypt(refreshToken);
+            }
+            await user.save();
+          } else {
+            // 3. 完全に新規ユーザー: ユーザー名の重複を回避して作成
+            let username = displayName;
+            const existingWithName = await User.findOne({ username });
+            if (existingWithName) {
+              // 重複する場合はランダムサフィックスを付与
+              username = `${displayName}_${profile.id.slice(-5)}`;
+            }
+
+            user = new User({
+              username,
+              email,
+              googleId: profile.id,
+              profilePicture: profile.photos[0]?.value,
+              refreshToken: refreshToken ? encrypt(refreshToken) : undefined,
+            });
+            await user.save();
+          }
         }
         return done(null, user);
       } catch (error) {
